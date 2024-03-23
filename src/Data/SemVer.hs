@@ -79,9 +79,6 @@ instance Show PreRelSegment where
 newtype Build = Build {unBuild :: [String]}
   deriving (Eq)
 
-instance Ord Build where
-  _ `compare` _ = EQ
-
 instance Read Build where
   readPrec = lift pBuild
 
