@@ -24,22 +24,12 @@ data SemVer = SemVer
   , preRelease :: !(Maybe PreRelease)
   , build :: !(Maybe Build)
   }
-
-instance Eq SemVer where
-  (SemVer ma1 mi1 p1 pre1 _) == (SemVer ma2 mi2 p2 pre2 _) = ma1 == ma2 && mi1 == mi2 && p1 == p2 && pre1 == pre2
+  deriving (Eq)
 
 instance Ord SemVer where
-  v1@(SemVer ma1 mi1 p1 pre1 _) `compare` v2@(SemVer ma2 mi2 p2 pre2 _)
-    | ma1 > ma2 = GT
-    | ma1 == ma2 && mi1 > mi2 = GT
-    | ma1 == ma2 && mi1 == mi2 && p1 > p2 = GT
-    | ma1 == ma2
-        && mi1 == mi2
-        && p1 == p2
-        && Down (Down <$> pre1) > Down (Down <$> pre2) =
-        GT
-    | v1 == v2 = EQ
-    | otherwise = LT
+  (SemVer ma1 mi1 p1 pre1 _) `compare` (SemVer ma2 mi2 p2 pre2 _) =
+    (ma1, mi1, p1, Down (Down <$> pre1))
+      `compare` (ma2, mi2, p2, Down (Down <$> pre2))
 
 instance Read SemVer where
   readPrec = lift pSemVer
@@ -74,10 +64,10 @@ data PreRelSegment
   deriving (Eq)
 
 instance Ord PreRelSegment where
-  PreRelIntSegment _ `compare` PreRelStrSegment _ = LT
-  PreRelStrSegment _ `compare` PreRelIntSegment _ = GT
   PreRelIntSegment s1 `compare` PreRelIntSegment s2 = s1 `compare` s2
   PreRelStrSegment s1 `compare` PreRelStrSegment s2 = s1 `compare` s2
+  PreRelIntSegment _ `compare` _ = LT
+  PreRelStrSegment _ `compare` _ = GT
 
 instance Read PreRelSegment where
   readPrec = lift pPreReleaseIdentifier
@@ -88,6 +78,9 @@ instance Show PreRelSegment where
 
 newtype Build = Build {unBuild :: [String]}
   deriving (Eq)
+
+instance Ord Build where
+  _ `compare` _ = EQ
 
 instance Read Build where
   readPrec = lift pBuild
