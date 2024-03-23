@@ -41,6 +41,9 @@ instance Ord SemVer where
     | v1 == v2 = EQ
     | otherwise = LT
 
+instance Read SemVer where
+  readPrec = lift pSemVer
+
 instance Show SemVer where
   show SemVer{..} =
     printf
@@ -51,21 +54,19 @@ instance Show SemVer where
       (maybe "" (('-' :) . show) preRelease)
       (maybe "" (('+' :) . show) build)
 
-instance Read SemVer where
-  readPrec = lift pSemVer
-
 instance IsString SemVer where
-  fromString s = case (filter (null . snd)) (readP_to_S pSemVer s) of
-    (res, "") : _ -> res
-    _ -> throw SemVerParseException
+  fromString s = case parseSemVer s of
+    Just res -> res
+    Nothing -> throw SemVerParseException
 
-newtype PreRelease = PreRelease [PreRelSegment] deriving (Eq, Ord)
+newtype PreRelease = PreRelease {unPreRelease :: [PreRelSegment]}
+  deriving (Eq, Ord)
 
 instance Read PreRelease where
   readPrec = lift pPreRelease
 
 instance Show PreRelease where
-  show (PreRelease segments) = intercalate "." (map show segments)
+  show = intercalate "." . map show . unPreRelease
 
 data PreRelSegment
   = PreRelStrSegment String
@@ -78,18 +79,21 @@ instance Ord PreRelSegment where
   PreRelIntSegment s1 `compare` PreRelIntSegment s2 = s1 `compare` s2
   PreRelStrSegment s1 `compare` PreRelStrSegment s2 = s1 `compare` s2
 
+instance Read PreRelSegment where
+  readPrec = lift pPreReleaseIdentifier
+
 instance Show PreRelSegment where
   show (PreRelStrSegment s) = s
   show (PreRelIntSegment s) = show s
 
-newtype Build = Build [String]
+newtype Build = Build {unBuild :: [String]}
   deriving (Eq)
-
-instance Show Build where
-  show (Build segments) = intercalate "." segments
 
 instance Read Build where
   readPrec = lift pBuild
+
+instance Show Build where
+  show = intercalate "." . unBuild
 
 isPositiveDigit :: Char -> Bool
 isPositiveDigit c = c > '0' && c <= '9'
@@ -113,14 +117,9 @@ pNumeric =
         )
 
 pAlphaNumeric :: ReadP String
-pAlphaNumeric =
-  ((:) <$> satisfy isNonDigit <*> munch isIdentifier)
-    <++ ( do
-            xs <- many1 (satisfy isIdentifier)
-            y <- satisfy isNonDigit
-            zs <- munch isIdentifier
-            return (xs <> (y : zs))
-        )
+pAlphaNumeric = do
+  xs <- munch1 isIdentifier
+  if any isNonDigit xs then return xs else pfail
 
 pPreReleaseIdentifier :: ReadP PreRelSegment
 pPreReleaseIdentifier = (PreRelStrSegment <$> pAlphaNumeric) <++ (PreRelIntSegment <$> pNumeric)
@@ -146,3 +145,8 @@ pSemVer = do
   build <- option Nothing $ char '+' *> (Just <$> pBuild)
 
   return $ SemVer{..}
+
+parseSemVer :: String -> Maybe SemVer
+parseSemVer s = case (filter (null . snd)) (readP_to_S pSemVer s) of
+  (res, "") : _ -> Just res
+  _ -> Nothing

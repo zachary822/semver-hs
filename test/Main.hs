@@ -1,54 +1,89 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Main (main) where
 
 import Control.Exception
+import Data.Char
 import Data.SemVer
 import Test.Hspec
+import Test.QuickCheck
 import Text.ParserCombinators.ReadP
+
+genIdentifier :: Gen String
+genIdentifier = listOf1 (arbitraryASCIIChar `suchThat` isIdentifier)
+
+instance Arbitrary SemVer where
+  arbitrary =
+    SemVer
+      <$> (getNonNegative <$> (arbitrary :: Gen (NonNegative Int)))
+      <*> (getNonNegative <$> (arbitrary :: Gen (NonNegative Int)))
+      <*> (getNonNegative <$> (arbitrary :: Gen (NonNegative Int)))
+      <*> arbitrary
+      <*> arbitrary
+
+instance Arbitrary PreRelease where
+  arbitrary = PreRelease <$> listOf1 arbitrary
+
+instance Arbitrary PreRelSegment where
+  arbitrary =
+    frequency
+      [
+        ( 1
+        , PreRelStrSegment
+            <$> (genIdentifier `suchThat` any isNonDigit)
+        )
+      ,
+        ( 1
+        , PreRelIntSegment . getNonNegative <$> (arbitrary :: Gen (NonNegative Int))
+        )
+      ]
+
+instance Arbitrary Build where
+  arbitrary = Build <$> listOf1 genIdentifier
 
 main :: IO ()
 main = hspec $ do
   describe "parse numeric identifier" $ do
+    it "should parse number with no leading 0"
+      $ property
+      $ forAll
+        ( liftA2 (:) (chooseEnum ('1', '9')) (listOf arbitrary `suchThat` all isDigit) ::
+            Gen String
+        )
+      $ \n -> readP_to_S pNumeric n `shouldMatchList` [(read n, "")]
+
     it "should parse 0" $ do
       readP_to_S pNumeric "0" `shouldMatchList` [(0, "")]
-    it "should fail with leading 0" $ do
-      readP_to_S pNumeric "01" `shouldMatchList` [(0, "1")]
-    it "should parse numbers with 0" $ do
-      readP_to_S pNumeric "101" `shouldMatchList` [(101, "")]
+    it "should fail with leading 0"
+      $ property
+      $ forAll
+        ( ('0' :) <$> (listOf1 arbitraryASCIIChar `suchThat` all isDigit) ::
+            Gen String
+        )
+      $ \n -> readP_to_S pNumeric n `shouldBe` [(0, drop 1 n)]
+
+    it "should parse number with 0"
+      $ property
+      $ forAll
+        ( liftA2
+            (:)
+            (chooseEnum ('1', '9'))
+            (listOf1 arbitraryASCIIChar `suchThat` all isDigit `suchThat` any (== '0')) ::
+            Gen String
+        )
+      $ \n -> readP_to_S pNumeric n `shouldMatchList` [(read n, "")]
 
   describe "parse alphanumeric identifier" $ do
-    it "should not parse 0" $ do
-      readP_to_S pAlphaNumeric "0" `shouldMatchList` []
-    it "should parse x" $ do
-      readP_to_S pAlphaNumeric "x" `shouldMatchList` [("x", "")]
-    it "should parse x0" $ do
-      readP_to_S pAlphaNumeric "x0" `shouldMatchList` [("x0", "")]
-    it "should parse 0x" $ do
-      readP_to_S pAlphaNumeric "0x" `shouldMatchList` [("0x", "")]
-    it "should parse 0x0" $ do
-      readP_to_S pAlphaNumeric "0x0" `shouldMatchList` [("0x0", "")]
+    it "should not parse only digit" $
+      property $
+        forAll (listOf1 arbitrary `suchThat` all isDigit) $ \n ->
+          readP_to_S pAlphaNumeric n `shouldMatchList` []
 
-  describe "parse pre-release" $ do
-    it "should parse alpha" $ do
-      readP_to_S pPreRelease "alpha"
-        `shouldMatchList` [(PreRelease [PreRelStrSegment "alpha"], "")]
-    it "should parse alpha.0" $ do
-      readP_to_S pPreRelease "alpha.0"
-        `shouldContain` [(PreRelease [PreRelStrSegment "alpha", PreRelIntSegment 0], "")]
-    it "should not parse alpha.01" $ do
-      readP_to_S pPreRelease "alpha.01"
-        `shouldNotContain` [(PreRelease [PreRelStrSegment "alpha", PreRelIntSegment 1], "")]
-
-  describe "parse build" $ do
-    it "should parse 001" $ do
-      readP_to_S pBuild "001" `shouldMatchList` [(Build ["001"], "")]
-    it "should parse exp.sha.5114f85" $ do
-      readP_to_S pBuild "exp.sha.5114f85"
-        `shouldContain` [(Build ["exp", "sha", "5114f85"], "")]
-    it "should parse 21AF26D3----117B344092BD" $ do
-      readP_to_S pBuild "21AF26D3----117B344092BD"
-        `shouldContain` [(Build ["21AF26D3----117B344092BD"], "")]
+    it "should parse alphanumeric" $
+      property $
+        forAll (genIdentifier `suchThat` any isNonDigit) $ \n ->
+          readP_to_S pAlphaNumeric n `shouldMatchList` [(n, "")]
 
   describe "parse version" $ do
     it "should parse 1.0.0" $ do
@@ -78,25 +113,12 @@ main = hspec $ do
                           , ""
                           )
                         ]
-    it "read then show should work" $ do
+    it "read is inverse to show" $ do
       show (read "1.0.0-alpha+001" :: SemVer) `shouldBe` "1.0.0-alpha+001"
-    it "show then read should work" $ do
-      read
-        ( show
-            ( SemVer
-                1
-                0
-                0
-                (Just (PreRelease [PreRelStrSegment "alpha"]))
-                (Just (Build ["001"]))
-            )
-        )
-        `shouldBe` SemVer
-          1
-          0
-          0
-          (Just (PreRelease [PreRelStrSegment "alpha"]))
-          (Just (Build ["001"]))
+    it "show is inverse to read" $
+      property $
+        forAll (arbitrary :: Gen SemVer) $
+          \ver -> (read . show) ver `shouldBe` ver
     it "fromString should work on 1.0.0-alpha+001" $ do
       ("1.0.0-alpha+001" :: SemVer)
         `shouldBe` ( SemVer

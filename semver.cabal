@@ -124,5 +124,6 @@ test-suite semver-test
     -- Test dependencies.
     build-depends:
         base ^>=4.19.1.0,
+        QuickCheck,
         hspec,
         semver
