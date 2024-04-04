@@ -127,3 +127,14 @@ test-suite semver-test
         QuickCheck,
         hspec,
         semver
+
+benchmark semver-bench
+    import:           warnings
+    default-language: GHC2021
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   bench
+    main-is:          Main.hs
+    build-depends:
+        base ^>=4.19.1.0,
+        criterion,
+        semver
